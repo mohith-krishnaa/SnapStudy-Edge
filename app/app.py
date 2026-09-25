@@ -124,10 +124,19 @@ def show_quiz(quiz):
                 label_visibility="collapsed",
             )
 
-    st.divider()
-    st.caption("Answer key")
-    for number, item in enumerate(questions, 1):
-        st.write(str(number) + ". " + str(item.get("answer", "")))
+    if st.button("Check answers", key="check_quiz"):
+        score = 0
+        for number, item in enumerate(questions, 1):
+            response = st.session_state.get("quiz_" + str(number), "")
+            if response.strip().casefold() == str(item.get("answer", "")).strip().casefold():
+                score += 1
+        st.success("Score: " + str(score) + "/" + str(len(questions)))
+
+    if st.checkbox("Show answer key", key="show_answers"):
+        st.divider()
+        st.caption("Answer key")
+        for number, item in enumerate(questions, 1):
+            st.write(str(number) + ". " + str(item.get("answer", "")))
 
 
 st.title("SnapStudy Edge")
@@ -161,11 +170,12 @@ if st.button("Generate", type="primary", use_container_width=True):
         try:
             with st.spinner("Running local inference..."):
                 if mode == "Summary":
-                    st.markdown(make_summary(notes))
+                    data = make_summary(notes)
                 elif mode == "Flashcards":
-                    show_flashcards(make_flashcards(notes))
+                    data = make_flashcards(notes)
                 else:
-                    show_quiz(make_quiz(notes))
+                    data = make_quiz(notes)
+                st.session_state["result"] = {"mode": mode, "data": data}
         except requests.RequestException as exc:
             st.error(
                 "Could not reach GenieX. Verify GENIEX_BASE_URL and the local server. "
@@ -173,6 +183,16 @@ if st.button("Generate", type="primary", use_container_width=True):
             )
         except (RuntimeError, json.JSONDecodeError) as exc:
             st.error("Could not process the model response: " + str(exc))
+
+result = st.session_state.get("result")
+if result:
+    st.divider()
+    if result["mode"] == "Summary":
+        st.markdown(result["data"])
+    elif result["mode"] == "Flashcards":
+        show_flashcards(result["data"])
+    else:
+        show_quiz(result["data"])
 
 st.divider()
 st.caption(
