@@ -154,6 +154,7 @@ with st.sidebar:
 notes = st.text_area(
     "Paste your lecture notes",
     height=330,
+    max_chars=MAX_NOTES_CHARS,
     placeholder="Paste a chapter, class notes, formulas, or revision material here...",
 )
 
