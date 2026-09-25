@@ -1,139 +1,128 @@
 import json
 import os
-import re
-from typing import Any
 
 import requests
 import streamlit as st
 
 st.set_page_config(page_title="SnapStudy Edge", page_icon="SnapStudy", layout="wide")
 
-GENIEX_BASE_URL = os.getenv("GENIEX_BASE_URL", "http://127.0.0.1:8000/v1")
-GENIEX_API_KEY = os.getenv("GENIEX_API_KEY", "local")
-GENIEX_MODEL = os.getenv("GENIEX_MODEL", "Llama-v3.2-3B-Instruct-SSD")
-REQUEST_TIMEOUT = int(os.getenv("GENIEX_TIMEOUT", "120"))
+BASE_URL = os.getenv("GENIEX_BASE_URL", "http://127.0.0.1:8000/v1")
+API_KEY = os.getenv("GENIEX_API_KEY", "local")
+MODEL = os.getenv("GENIEX_MODEL", "Llama-v3.2-3B-Instruct-SSD")
+TIMEOUT = int(os.getenv("GENIEX_TIMEOUT", "120"))
 
 
-def call_local_model(system_prompt: str, user_prompt: str) -> str:
-    url = f"{GENIEX_BASE_URL.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GENIEX_API_KEY}",
-    }
-    payload = {
-        "model": GENIEX_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.2,
-    }
+def ask_model(system_prompt: str, notes: str) -> str:
     response = requests.post(
-        url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT
+        BASE_URL.rstrip("/") + "/chat/completions",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + API_KEY,
+        },
+        json={
+            "model": MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": notes},
+            ],
+            "temperature": 0.2,
+        },
+        timeout=TIMEOUT,
     )
     response.raise_for_status()
-    data: dict[str, Any] = response.json()
+    data = response.json()
     try:
         return data["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError("GenieX returned an unexpected response format.") from exc
+        raise RuntimeError("Unexpected GenieX response format.") from exc
 
 
-def extract_json_text: str) -> Any:
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.I)
+def parse_json(text: str):
+    cleaned = text.strip()
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}|\[.*\]", cleaned, flags=re.S)
-        if not match:
+        start_candidates = [p for p in (cleaned.find("{"), cleaned.find("[")) if p >= 0]
+        start = min(start_candidates) if start_candidates else -1
+        end = max(cleaned.rfind("}"), cleaned.rfind("]"))
+        if start < 0 or end < start:
             raise
-        return json.loads(match.group(0))
+        return json.loads(cleaned[start : end + 1])
 
 
-def build_summary(notes: str) -> str:
-    return call_local_model(
-        """You are a precise study assistant. Work only from the supplied notes.
-Do not invent facts. Return concise Markdown with:
-1) 5-8 key points
-2) important definitions/formulas
-3) likely exam questions.""",
+def make_summary(notes: str) -> str:
+    return ask_model(
+        "You are a precise study assistant. Use only the supplied notes. "
+        "Return 5-8 key points, important definitions/formulas, and likely exam questions.",
         notes,
     )
 
 
-def build_flashcards(notes: str) -> list[dict[str, Any]]:
-    result = call_local_model(
-        """Create exactly 8 concise flashcards from the supplied study material.
-Return ONLY a JSON array of objects with keys "question" and "answer".
-Do not add facts that are not supported by the notes.""",
+def make_flashcards(notes: str):
+    result = ask_model(
+        "Create exactly 8 concise flashcards from the supplied notes. "
+        "Return ONLY a JSON array of objects with question and answer keys.",
         notes,
     )
-    cards = extract_json(result)
+    cards = parse_json(result)
     if not isinstance(cards, list):
-        raise RuntimeError("Flashcard response was not a JSON array.")
+        raise RuntimeError("Flashcard output was not a JSON array.")
     return cards
 
 
-def build_quiz(notes: str) -> dict[str, Any]:
-    result = call_local_model(
-        """Create exactly 7 mixed study questions from the supplied notes.
-Return ONLY JSON with this shape:
-{
-  "questions": [
-    {
-      "type": "mcq" or "short_answer",
-      "question": "...",
-      "options": ["A", "B", "C", "D"],
-      "answer": "..."
-    }
-  ]
-}
-Keep answers concise and grounded in the notes.""",
+def make_quiz(notes: str):
+    result = ask_model(
+        "Create exactly 7 mixed MCQ and short-answer questions. "
+        "Return ONLY JSON with a questions array containing type, question, options, and answer. "
+        "Keep answers grounded in the supplied notes.",
         notes,
     )
-    quiz = extract_json(result)
+    quiz = parse_json(result)
     if not isinstance(quiz, dict) or not isinstance(quiz.get("questions"), list):
-        raise RuntimeError("Quiz response was not in the expected JSON format.")
+        raise RuntimeError("Quiz output was not in the expected JSON format.")
     return quiz
 
 
-def render_flashcards(cards: list[dict[str, Any]]) -> None:
-    for index, card in enumerate(cards, start=1):
-        with st.expander(f"Card {index}: {card.get('question', 'Question')}"):
+def show_flashcards(cards):
+    for number, card in enumerate(cards, 1):
+        with st.expander("Card " + str(number) + ": " + str(card.get("question", ""))):
             st.write(card.get("answer", ""))
 
 
-def render_quiz(quiz: dict[str, Any]) -> None:
+def show_quiz(quiz):
     questions = quiz.get("questions", [])
-    for index, item in enumerate(questions, start=1):
-        st.markdown(f"**{index}. {item.get('question', '')}**")
+    for number, item in enumerate(questions, 1):
+        st.markdown("**" + str(number) + ". " + str(item.get("question", "")) + "**")
         if item.get("type") == "mcq":
-            options = item.get("options", [])
             st.radio(
                 "Choose an answer",
-                options,
-                key=f"quiz_{index}",
+                item.get("options", []),
+                key="quiz_" + str(number),
                 label_visibility="collapsed",
             )
         else:
-            st.text_input("Your answer", key=f"quiz_{index}", label_visibility="collapsed")
+            st.text_input(
+                "Your answer",
+                key="quiz_" + str(number),
+                label_visibility="collapsed",
+            )
 
     st.divider()
     st.caption("Answer key")
-    for index, item in enumerate(questions, start=1):
-        st.write(f"{index}. {item.get('answer', '')}")
+    for number, item in enumerate(questions, 1):
+        st.write(str(number) + ". " + str(item.get("answer", "")))
 
 
-st.title("SnapStudy SnapStudy Edge")
-st.caption("Private AI study companion designed for local Snapdragon inference")
+st.title("SnapStudy Edge")
+st.caption("Private AI study companion for local Snapdragon inference.")
 
 with st.sidebar:
     st.subheader("Local inference")
-    st.code(GENIEX_BASE_URL, language="text")
-    st.write(f"Model: {GENIEX_MODEL}")
+    st.code(BASE_URL, language="text")
+    st.write("Model: " + MODEL)
     st.info(
         "Study material is sent to the configured local GenieX endpoint. "
-        "This UI does not require a hosted AI API."
+        "No hosted AI API is required by this UI."
     )
 
 notes = st.text_area(
@@ -142,31 +131,34 @@ notes = st.text_area(
     placeholder="Paste a chapter, class notes, formulas, or revision material here...",
 )
 
-mode = st.radio("Study action", ["Summary", "Flashcards", "Quiz"], horizontal=True)
-generate = st.button("Generate", type="primary", use_container_width=True)
+mode = st.radio(
+    "Study action",
+    ["Summary", "Flashcards", "Quiz"],
+    horizontal=True,
+)
 
-if generate:
+if st.button("Generate", type="primary", use_container_width=True):
     if not notes.strip():
         st.warning("Paste some study material first.")
     else:
-        with st.spinner("Running local inference..."):
-            try:
+        try:
+            with st.spinner("Running local inference..."):
                 if mode == "Summary":
-                    st.markdown(build_summary(notes))
+                    st.markdown(make_summary(notes))
                 elif mode == "Flashcards":
-                    render_flashcards(build_flashcards(notes))
+                    show_flashcards(make_flashcards(notes))
                 else:
-                    render_quiz(build_quiz(notes))
-            except requests.RequestException as exc:
-                st.error(
-                    "Could not reach GenieX. Start the local OpenAI-compatible "
-                    f"server and verify GENIEX_BASE_URL. Details: {exc}"
-                )
-            except (RuntimeError, json.JSONDecodeError) as exc:
-                st.error(f"Model response could not be processed: {exc}")
+                    show_quiz(make_quiz(notes))
+        except requests.RequestException as exc:
+            st.error(
+                "Could not reach GenieX. Verify GENIEX_BASE_URL and the local server. "
+                + str(exc)
+            )
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            st.error("Could not process the model response: " + str(exc))
 
 st.divider()
 st.caption(
-    "SnapStudy Edge  Streamlit UI -> GenieX -> QAIRT -> Snapdragon NPU. "
-    "Record real device measurements before claiming application performance."
+    "SnapStudy Edge | Streamlit UI -> GenieX -> QAIRT -> Snapdragon NPU. "
+    "Measure actual device performance before reporting application benchmarks."
 )
