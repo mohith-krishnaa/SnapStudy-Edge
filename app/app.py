@@ -69,8 +69,11 @@ def make_flashcards(notes: str):
         notes,
     )
     cards = parse_json(result)
-    if not isinstance(cards, list):
-        raise RuntimeError("Flashcard output was not a JSON array.")
+    if not isinstance(cards, list) or len(cards) != 8:
+        raise RuntimeError("Flashcard output must contain exactly 8 cards.")
+    for card in cards:
+        if not isinstance(card, dict) or not isinstance(card.get("question"), str) or not isinstance(card.get("answer"), str):
+            raise RuntimeError("Flashcard output has an invalid card format.")
     return cards
 
 
@@ -82,9 +85,19 @@ def make_quiz(notes: str):
         notes,
     )
     quiz = parse_json(result)
-    if not isinstance(quiz, dict) or not isinstance(quiz.get("questions"), list):
-        raise RuntimeError("Quiz output was not in the expected JSON format.")
-    return quiz
+    questions = quiz.get("questions") if isinstance(quiz, dict) else None
+    if not isinstance(questions, list) or len(questions) != 7:
+        raise RuntimeError("Quiz output must contain exactly 7 questions.")
+    for item in questions:
+        if not isinstance(item, dict) or not isinstance(item.get("question"), str) or not isinstance(item.get("answer"), str):
+            raise RuntimeError("Quiz output has an invalid question format.")
+        if item.get("type") == "mcq":
+            options = item.get("options")
+            if not isinstance(options, list) or not options or not all(isinstance(x, str) for x in options):
+                raise RuntimeError("MCQ question is missing valid options.")
+        elif item.get("type") != "short_answer":
+            raise RuntimeError("Quiz question type must be mcq or short_answer.")
+    return {"questions": questions}
 
 
 def show_flashcards(cards):
