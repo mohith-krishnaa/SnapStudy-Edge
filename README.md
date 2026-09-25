@@ -7,14 +7,14 @@ Private AI study companion designed for Snapdragon PCs.
 Paste lecture notes and choose:
 
 - Summary: key points, definitions/formulas, and likely exam questions.
-- Flashcards: 8 concise question/answer cards.
-- Quiz: 7 mixed MCQ and short-answer questions.
+- Flashcards: exactly 8 concise question/answer cards.
+- Quiz: exactly 7 mixed MCQ and short-answer questions with local answer checking.
 
 ## Architecture
 
 Student notes -> Streamlit UI -> local OpenAI-compatible GenieX -> QAIRT -> Snapdragon NPU
 
-The app does not require a hosted AI API for its inference path.
+The app does not require a hosted AI API for its inference path. If GENIEX_BASE_URL points to a remote service, notes are sent to that endpoint. For private material, keep the endpoint local and trusted.
 
 ## Run locally
 
@@ -38,14 +38,23 @@ Optional environment variables:
 - GENIEX_API_KEY
 - GENIEX_MODEL
 - GENIEX_TIMEOUT
+- SNAPSTUDY_MAX_NOTES_CHARS
 
-Default model name:
+The default study-material limit is 50,000 characters.
 
-Llama-v3.2-3B-Instruct-SSD
+## Safety and validation
 
-## Validation
+- Pasted study material is treated as untrusted content; embedded instructions are not intended to override the study-assistant task.
+- Flashcard output is validated for exactly 8 cards with question and answer fields.
+- Quiz output is validated for exactly 7 questions and valid MCQ/short-answer structures.
+- Quiz answers are hidden by default and checked locally in the UI.
+- For private notes, use a trusted local GenieX endpoint.
 
 Run the application on the target HP Snapdragon PC before reporting performance results. Record actual inference latency, memory usage, and NPU execution. Qualcomm platform/model reference metrics should not be presented as measurements of this application.
+
+## License
+
+Apache License 2.0. See LICENSE.
 
 ## Repository
 
