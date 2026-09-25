@@ -95,6 +95,8 @@ def make_quiz(notes: str):
             options = item.get("options")
             if not isinstance(options, list) or not options or not all(isinstance(x, str) for x in options):
                 raise RuntimeError("MCQ question is missing valid options.")
+            if item["answer"] not in options:
+                raise RuntimeError("MCQ answer must match one of the provided options.")
         elif item.get("type") != "short_answer":
             raise RuntimeError("Quiz question type must be mcq or short_answer.")
     return {"questions": questions}
